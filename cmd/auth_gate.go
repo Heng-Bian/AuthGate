@@ -23,7 +23,10 @@ func main() {
 			}
 		]
 	}`
-	publicKey, err := oauth2.ParseJWK([]byte(jwk), "")
+	var err error
+	jwk, err = oauth2.GetJwksFromIssuer("YOUR_ISSUER_URL")
+	fmt.Print(err)
+	publicKey, err := oauth2.ParseJWKS([]byte(jwk), "")
 	if err != nil {
 		fmt.Println("Error parsing public key:", err)
 		return
