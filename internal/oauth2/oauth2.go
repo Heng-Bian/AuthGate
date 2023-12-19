@@ -24,31 +24,32 @@ type JWKS struct {
 }
 
 func ParseJwksFromUri(jwks_uri string) (string, error) {
-	var err error
 	req, err := http.NewRequest(http.MethodGet, jwks_uri, nil)
-	if err == nil {
-		resp, err := http.DefaultClient.Do(req)
-		if err == nil {
-			defer resp.Body.Close()
-			if resp.StatusCode == http.StatusOK {
-				data, err := io.ReadAll(resp.Body)
-				if err == nil {
-					return string(data), nil
-				}
-			} else {
-				return "", errors.New("url:" + jwks_uri + " http status code:" + resp.Status)
-			}
-		}
+	if err != nil {
+		return "", err
 	}
-	return "", err
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusOK {
+		data, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return "", nil
+		}
+		return string(data), nil
+	} else {
+		return "", errors.New("url:" + jwks_uri + " http status code:" + resp.Status)
+	}
 }
 
 func GetJwksFromIssuer(issuer string) (string, error) {
-	var err error
 	u, err := url.Parse(issuer)
 	if err != nil {
 		return "", err
 	}
+
 	//try /oauth2/jwks for jwks.
 	jwks, err := ParseJwksFromUri(u.JoinPath("/oauth2/jwks").String())
 
@@ -60,29 +61,34 @@ func GetJwksFromIssuer(issuer string) (string, error) {
 
 	//try /.well-known/openid-configuration for jwks_uri
 	req, err := http.NewRequest(http.MethodGet, u.JoinPath("/.well-known/openid-configuration").String(), nil)
-
-	if err == nil {
-		respc, err := http.DefaultClient.Do(req)
-		if err == nil {
-			defer respc.Body.Close()
-			if respc.StatusCode == http.StatusOK {
-				data, err := io.ReadAll(respc.Body)
-				if err == nil {
-					var configmap map[string]interface{}
-					err = json.Unmarshal(data, &configmap)
-					if err == nil {
-						if jwks_uri, ok := configmap["jwks_uri"]; ok {
-							return ParseJwksFromUri(jwks_uri.(string))
-						} else {
-							err = errors.New("jwks_uri not found in openid-configuration")
-						}
-					}
-				}
-
-			}
-		}
+	if err != nil {
+		return "", err
 	}
-	return "", err
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		data, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return "", err
+		}
+		var configmap map[string]interface{}
+		err = json.Unmarshal(data, &configmap)
+		if err != nil {
+			return "", err
+		}
+		if jwks_uri, ok := configmap["jwks_uri"]; ok {
+			return ParseJwksFromUri(jwks_uri.(string))
+		} else {
+			return "", errors.New("jwks_uri not found in openid-configuration")
+		}
+	} else {
+		return "", errors.New("fail to get /.well-known/openid-configuration from " + issuer)
+	}
 }
 func ParseJWKS(jwksBytes []byte, kid string) (*rsa.PublicKey, error) {
 	var jwks JWKS
@@ -102,7 +108,7 @@ func ParseJWKS(jwksBytes []byte, kid string) (*rsa.PublicKey, error) {
 		}
 	}
 	if jwk.N == "" {
-		return nil, errors.New("no RAS modulus found in jwk!")
+		return nil, errors.New("no RAS modulus found in jwk")
 	}
 	// Decode Base64-encoded modulus and exponent
 	modulusBytes, err := base64.RawURLEncoding.DecodeString(jwk.N)
