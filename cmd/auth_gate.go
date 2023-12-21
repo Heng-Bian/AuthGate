@@ -8,6 +8,10 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strconv"
+	"strings"
+
+	"github.com/Heng-Bian/AuthGate/internal/oauth2"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 var (
@@ -63,7 +67,30 @@ func main() {
 	}
 }
 
-// TODO
-func validateAuthorization(token string) bool {
-	return false
+func validateAuthorization(tokenString string) bool {
+	arr := strings.Split(tokenString, "Bearer ")
+	if len(arr) < 2 {
+		return false
+	}
+	jwtString := arr[1]
+	publicKey, err := oauth2.GetPublicKeyFromIssuer(*issuer, "")
+	if err != nil {
+		log.Println(err)
+		return false
+	}
+	token, err := jwt.Parse(jwtString, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
+			return nil, fmt.Errorf("Unexpected signing method: %v", token.Header["alg"])
+		}
+		return publicKey, nil
+	})
+	if err != nil {
+		return false
+	}
+
+	if _, ok := token.Claims.(jwt.MapClaims); ok {
+		return true
+	} else {
+		return false
+	}
 }

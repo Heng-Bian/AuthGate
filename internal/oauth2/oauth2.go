@@ -10,7 +10,11 @@ import (
 	"math/big"
 	"net/http"
 	"net/url"
+	"time"
 )
+
+var pubkey *rsa.PublicKey
+var lastModified = time.Now().Unix()
 
 // JWK represents a JSON Web Key
 type JWK struct {
@@ -90,7 +94,7 @@ func GetJwksFromIssuer(issuer string) (string, error) {
 		return "", errors.New("fail to get /.well-known/openid-configuration from " + issuer)
 	}
 }
-func ParseJWKS(jwksBytes []byte, kid string) (*rsa.PublicKey, error) {
+func GetRsaPublicKey(jwksBytes []byte, kid string) (*rsa.PublicKey, error) {
 	var jwks JWKS
 	err := json.Unmarshal(jwksBytes, &jwks)
 	if err != nil {
@@ -132,4 +136,21 @@ func ParseJWKS(jwksBytes []byte, kid string) (*rsa.PublicKey, error) {
 	}
 
 	return publicKey, nil
+}
+
+func GetPublicKeyFromIssuer(issuer string, kid string) (*rsa.PublicKey, error) {
+	if pubkey != nil && time.Now().Unix()-lastModified < 300 {
+		return pubkey, nil
+	}
+	jwks, err := GetJwksFromIssuer(issuer)
+	if err != nil {
+		return nil, err
+	}
+	key, err := GetRsaPublicKey([]byte(jwks), kid)
+	if err != nil {
+		return nil, err
+	}
+	pubkey = key
+	lastModified = time.Now().Unix()
+	return pubkey, nil
 }
