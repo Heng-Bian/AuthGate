@@ -136,8 +136,12 @@ func GetPublicKeyFromIssuer(issuer string, kid string) (interface{}, error) {
 		if err != nil {
 			return nil, err
 		}
+	} else if strings.EqualFold("OKP", base.Kty) {
+		k, err = GetOKPPublicKey([]byte(jwks), kid)
+		if err != nil {
+			return nil, err
+		}
 	} else {
-		//TODO
 		return nil, errors.New("not support kty:" + base.Kty)
 	}
 	var pubkey PublicKey
