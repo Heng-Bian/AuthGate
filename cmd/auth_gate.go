@@ -57,6 +57,8 @@ func main() {
 			fmt.Fprint(w, "401 Unauthorized")
 			return
 		}
+		//remove the Authorization Header
+		r.Header.Del("Authorization")
 		proxy.ServeHTTP(w, r)
 	})
 	log.Println("Listen on port:" + strconv.Itoa(*port))
@@ -79,7 +81,7 @@ func validateAuthorization(tokenString string) bool {
 		return false
 	}
 	token, err := jwt.Parse(jwtString, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
+		if _, ok := token.Method.(*jwt.SigningMethodEd25519); !ok {
 			return nil, fmt.Errorf("Unexpected signing method: %v", token.Header["alg"])
 		}
 		return publicKey, nil

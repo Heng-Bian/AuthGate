@@ -1,30 +1,31 @@
 package oauth2
 
 import (
-	"crypto/rsa"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
 	"log"
-	"math/big"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
-var pubkey *rsa.PublicKey
-var lastModified = time.Now().Unix()
+var publicKeyCache = make(map[string]PublicKey)
 
-// JWK represents a JSON Web Key
-type JWK struct {
-	Kid string `json:"kid"`
-	Kty string `json:"kty"`
-	E   string `json:"e"`
-	N   string `json:"n"`
+type PublicKey struct {
+	Kid          string
+	Kty          string
+	LastModified int64
+	Key          interface{}
 }
-type JWKS struct {
-	Keys []JWK `json:"keys"`
+type jwkBase struct {
+	Kty string `json:"kty"`
+	Kid string `json:"kid"`
+}
+
+type jwksBase struct {
+	Keys []jwkBase `json:"keys"`
 }
 
 func ParseJwksFromUri(jwks_uri string) (string, error) {
@@ -94,63 +95,56 @@ func GetJwksFromIssuer(issuer string) (string, error) {
 		return "", errors.New("fail to get /.well-known/openid-configuration from " + issuer)
 	}
 }
-func GetRsaPublicKey(jwksBytes []byte, kid string) (*rsa.PublicKey, error) {
-	var jwks JWKS
-	err := json.Unmarshal(jwksBytes, &jwks)
-	if err != nil {
-		return nil, err
-	}
-	var jwk JWK
-	if kid == "" {
-		jwk = jwks.Keys[0]
-	} else {
-		for _, e := range jwks.Keys {
-			if e.Kid == kid {
-				jwk = e
-				break
-			}
-		}
-	}
-	if jwk.N == "" {
-		return nil, errors.New("no RAS modulus found in jwk")
-	}
-	// Decode Base64-encoded modulus and exponent
-	modulusBytes, err := base64.RawURLEncoding.DecodeString(jwk.N)
-	if err != nil {
-		return nil, err
-	}
 
-	exponentBytes, err := base64.RawURLEncoding.DecodeString(jwk.E)
-	if err != nil {
-		return nil, err
-	}
-
-	// Parse modulus and exponent as big integers
-	modulus := new(big.Int).SetBytes(modulusBytes)
-	exponent := new(big.Int).SetBytes(exponentBytes)
-
-	// Create RSA public key
-	publicKey := &rsa.PublicKey{
-		N: modulus,
-		E: int(exponent.Int64()),
-	}
-
-	return publicKey, nil
-}
-
-func GetPublicKeyFromIssuer(issuer string, kid string) (*rsa.PublicKey, error) {
-	if pubkey != nil && time.Now().Unix()-lastModified < 300 {
-		return pubkey, nil
+func GetPublicKeyFromIssuer(issuer string, kid string) (interface{}, error) {
+	v, ok := publicKeyCache[kid]
+	if ok && time.Now().Unix()-v.LastModified < 300 {
+		return v.Key, nil
 	}
 	jwks, err := GetJwksFromIssuer(issuer)
 	if err != nil {
 		return nil, err
 	}
-	key, err := GetRsaPublicKey([]byte(jwks), kid)
+	var data jwksBase
+	var base jwkBase
+	err = json.Unmarshal([]byte(jwks), &data)
 	if err != nil {
 		return nil, err
 	}
-	pubkey = key
-	lastModified = time.Now().Unix()
-	return pubkey, nil
+	//determine the alg for the kid
+	if kid == "" {
+		base = data.Keys[0]
+	} else {
+		for _, e := range data.Keys {
+			if e.Kid == kid {
+				base = e
+				break
+			}
+		}
+	}
+	if base.Kty == "" {
+		return nil, errors.New("unable to determin the kty")
+	}
+	var k interface{}
+	if strings.EqualFold("RSA", base.Kty) {
+		k, err = GetRsaPublicKey([]byte(jwks), kid)
+		if err != nil {
+			return nil, err
+		}
+	} else if strings.EqualFold("EC", base.Kty) {
+		k, err = GetEccPublicKey([]byte(jwks), kid)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		//TODO
+		return nil, errors.New("not support kty:" + base.Kty)
+	}
+	var pubkey PublicKey
+	pubkey.Key = k
+	pubkey.Kid = kid
+	pubkey.Kty = base.Kty
+	pubkey.LastModified = time.Now().Unix()
+	publicKeyCache[kid] = pubkey
+	return k, nil
 }
