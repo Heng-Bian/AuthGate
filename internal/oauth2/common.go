@@ -8,12 +8,29 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
-var publicKeyCache = make(map[string]PublicKey)
+var validateKeyCache = make(map[string]ValidateKey)
+var lock sync.RWMutex
 
-type PublicKey struct {
+func init() {
+	go func() {
+		for {
+			time.Sleep(300 * time.Second)
+			lock.Lock()
+			defer lock.Unlock()
+			for k, v := range validateKeyCache {
+				if time.Now().Unix()-v.LastModified > 300 {
+					delete(validateKeyCache, k)
+				}
+			}
+		}
+	}()
+}
+
+type ValidateKey struct {
 	Kid          string
 	Kty          string
 	LastModified int64
@@ -96,8 +113,10 @@ func GetJwksFromIssuer(issuer string) (string, error) {
 	}
 }
 
-func GetPublicKeyFromIssuer(issuer string, kid string) (interface{}, error) {
-	v, ok := publicKeyCache[kid]
+func GetValidateKeyFromIssuer(issuer string, kid string) (interface{}, error) {
+	lock.RLock()
+	v, ok := validateKeyCache[kid]
+	lock.RUnlock()
 	if ok && time.Now().Unix()-v.LastModified < 300 {
 		return v.Key, nil
 	}
@@ -141,14 +160,20 @@ func GetPublicKeyFromIssuer(issuer string, kid string) (interface{}, error) {
 		if err != nil {
 			return nil, err
 		}
+	} else if strings.EqualFold("OTC", base.Kty) {
+		k, err = GetOTCPublicKey([]byte(jwks), kid)
 	} else {
 		return nil, errors.New("not support kty:" + base.Kty)
 	}
-	var pubkey PublicKey
-	pubkey.Key = k
-	pubkey.Kid = kid
-	pubkey.Kty = base.Kty
-	pubkey.LastModified = time.Now().Unix()
-	publicKeyCache[kid] = pubkey
+	var validaeKey ValidateKey
+	validaeKey.Key = k
+	validaeKey.Kid = kid
+	validaeKey.Kty = base.Kty
+	validaeKey.LastModified = time.Now().Unix()
+
+	lock.Lock()
+	validateKeyCache[kid] = validaeKey
+	lock.Unlock()
+
 	return k, nil
 }

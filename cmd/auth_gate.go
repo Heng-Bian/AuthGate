@@ -75,21 +75,27 @@ func validateAuthorization(tokenString string) bool {
 		return false
 	}
 	jwtString := arr[1]
-	publicKey, err := oauth2.GetPublicKeyFromIssuer(*issuer, "")
-	if err != nil {
-		log.Println(err)
-		return false
-	}
+
 	token, err := jwt.Parse(jwtString, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodEd25519); !ok {
-			return nil, fmt.Errorf("Unexpected signing method: %v", token.Header["alg"])
+		//TODO base64 or utf-8?
+		if *secret != "" {
+			return []byte(*secret), nil
 		}
-		return publicKey, nil
+		var kid string
+		if v, ok := token.Header["kid"]; ok {
+			if s, ok := v.(string); ok {
+				kid = s
+			}
+		}
+		validateKey, err := oauth2.GetValidateKeyFromIssuer(*issuer, kid)
+		if err != nil {
+			return nil, err
+		}
+		return validateKey, nil
 	})
 	if err != nil {
 		return false
 	}
-
 	if _, ok := token.Claims.(jwt.MapClaims); ok {
 		return true
 	} else {
