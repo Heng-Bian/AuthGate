@@ -20,12 +20,12 @@ func init() {
 		for {
 			time.Sleep(300 * time.Second)
 			lock.Lock()
-			defer lock.Unlock()
 			for k, v := range validateKeyCache {
 				if time.Now().Unix()-v.LastModified > 300 {
 					delete(validateKeyCache, k)
 				}
 			}
+			lock.Unlock()
 		}
 	}()
 }
@@ -162,6 +162,9 @@ func GetValidateKeyFromIssuer(issuer string, kid string) (interface{}, error) {
 		}
 	} else if strings.EqualFold("OTC", base.Kty) {
 		k, err = GetOTCPublicKey([]byte(jwks), kid)
+		if err != nil {
+			return nil, err
+		}
 	} else {
 		return nil, errors.New("not support kty:" + base.Kty)
 	}

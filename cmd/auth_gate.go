@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"flag"
 	"fmt"
 	"log"
@@ -18,7 +19,7 @@ var (
 	port   = flag.Int("port", 8080, "Port to listen on")
 	target = flag.String("target", "", "The target service behind the AuthGate")
 	issuer = flag.String("issuer", "", "The oauth2 issuer")
-	secret = flag.String("secret", "", "The secret of HS signature")
+	secret = flag.String("secret", "", "The secret of HS signature, base64 encodeing")
 )
 
 func main() {
@@ -77,9 +78,8 @@ func validateAuthorization(tokenString string) bool {
 	jwtString := arr[1]
 
 	token, err := jwt.Parse(jwtString, func(token *jwt.Token) (interface{}, error) {
-		//TODO base64 or utf-8?
 		if *secret != "" {
-			return []byte(*secret), nil
+			return base64.RawURLEncoding.DecodeString(*secret)
 		}
 		var kid string
 		if v, ok := token.Header["kid"]; ok {
